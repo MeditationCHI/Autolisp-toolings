@@ -1,0 +1,33 @@
+(defun c:gl (/ obj-s obj-name as n plangli)
+	(setq obj-s (ssget)
+		n 0  
+		plangli 0
+	)
+	(repeat (sslength obj-s)
+		(setq as (ssname obj-s n)
+			obj-name (cdr (assoc 0 (entget as)))
+		)
+		(if (or (= obj-name "LINE")
+			(= obj-name "CIRCLE")
+			(= obj-name "ARC")
+			(= obj-name "SPLINE")
+			(= obj-name "POLYLINE")
+			(= obj-name "LWPOLYLINE")
+		    )
+		    (setq plangli (+ plangli (bau_elemli as)))
+		)
+		    (setq n (1+ n))
+	)
+	(prin1 (strcat "选择的"
+		(itoa n)
+		"个对象的总长度："
+		(rtos plangli))
+	)
+	(princ)
+)
+
+(defun bau_elemli (asatz)
+	(vl-load-com)
+	(setq asatz (vlax-ename->vla-object asatz))
+	(vlax-curve-getDistAtParam asatz(vlax-curve-getEndParam asatz))
+)
