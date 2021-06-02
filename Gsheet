@@ -1,0 +1,432 @@
+(defun c:Gsheet	(/		  spacer_limit
+		 AG_width	  AG_progress
+		 AG_blcorner	  AG_trcorner
+		 FSR_width	  FSR_progress
+		 FSR_blcorner	  clamping_len
+		 spacer_progress  spacer_width
+		 spacer_blcorner  Fglayer
+		 old_snap	  zblcorner
+		 ztrcorner
+		)
+  (setvar "cmdecho" 0)
+  (setq spacer_limit 500)
+  (setq frame_block (ssadd))
+
+  ;Define width, progress, left bottom corner value for AG sheet
+  (while (or (> AG_width 750) (null AG_width))
+    (setq AG_width (getreal "\nEnter width of AG sheet(can't bigger than 750mm):"))
+  )
+  (while (or (> AG_progress 550) (null AG_progress))
+    (setq AG_progress (getreal "\nEnter progress of AG sheet(can't bigger than 550mm):"))
+  )
+  (setq	AG_blcorner
+	 (getpoint
+	   "\nPlease enter or select lower-left corner of AG sheet:"
+	 )
+  )
+  
+  (setq	AG_trcorner
+	 (mapcar '+ AG_blcorner (list AG_progress AG_width 0))
+  )
+					;Define width, progress, corner value for FSR sheet
+  (setq FSR_width (- AG_width 10))
+  (setq FSR_progress (- AG_progress 10))
+  (setq FSR_blcorner (mapcar '+ AG_blcorner '(5 5 0)))
+  (setq	FSR_trcorner
+	 (mapcar '+ FSR_blcorner (list FSR_progress FSR_width))
+  )
+					;Define width, progress, corner value for Spacer sheet
+  (setq spacer_width (- FSR_width 10))
+
+  (if (>
+	spacer_limit
+	(- FSR_progress 25)
+      )
+    (setq clamping_len 20)
+    (setq clamping_len 25)
+  )					;if length of Spacer sheet is bigger than 500mm, then length of clamping area is 25mm, else it is 20mm
+
+  (setq spacer_progress (- FSR_progress (+ clamping_len 5)))
+  (setq	spacer_blcorner
+	 (mapcar '+ FSR_blcorner (list clamping_len 5 0))
+  )
+  (setq	spacer_trcorner
+	 (mapcar '+
+		 spacer_blcorner
+		 (list spacer_progress spacer_width 0)
+	 )
+  )
+				
+  (Glayer)
+					;Create AG FSR spacer sheet at each time
+
+  (setq oldsnap (getvar "osmode"))
+  (setvar "osmode" 0)			;switch off osnap function
+
+					;Draw geometries of all sheets, calling SelCurlayer function to set the relative layer as current layer before drawing the shape of each sheet.
+  (SelCurlayer "Sheet-AG")
+  (command "rectang" AG_blcorner AG_trcorner)
+  '(ssadd (entlast) frame_block)
+  (Markshtdim 
+    AG_blcorner
+    AG_trcorner
+    "H"
+    (mapcar '+ AG_trcorner (list 0 30 0))
+  )
+  (Markshtdim
+    AG_blcorner
+    AG_trcorner
+    "V"
+    (mapcar '- AG_blcorner (list 50 0 0))
+  )
+
+  (SelCurlayer "Sheet-FSR")
+  (command "rectang" FSR_blcorner FSR_trcorner)
+  '(ssadd (entlast) frame_block)
+  (Markshtdim
+    FSR_blcorner
+    FSR_trcorner
+    "H"
+    (mapcar '+ AG_trcorner (list 0 20 0))
+  )
+  (Markshtdim
+    FSR_blcorner
+    FSR_trcorner
+    "V"
+    (mapcar '- AG_blcorner (list 40 0 0))
+  )
+
+  (SelCurlayer "Sheet-SD")
+  (command "rectang" spacer_blcorner spacer_trcorner)
+  '(ssadd (entlast) frame_block)
+  (Markshtdim
+    spacer_blcorner
+    spacer_trcorner
+    "H"
+    (mapcar '+ AG_trcorner (list 0 10 0))
+  )
+  (Markshtdim
+    spacer_blcorner
+    spacer_trcorner
+    "V"
+    (mapcar '- AG_blcorner (list 30 0 0))
+  )
+					; Draw cut line for AG_sheet and FSR sheet
+  (Drawcutline1 "C" AG_trcorner AG_width)
+  (Drawcutline2 "C" AG_trcorner AG_width)
+  (Drawcutline "G" AG_trcorner AG_width)
+  (Drawcutline1 "CF" FSR_trcorner FSR_width)
+  (Drawcutline2 "CF" FSR_trcorner FSR_width)
+  (Drawcutline "GF" FSR_trcorner FSR_width)
+					; Draw middle line of AG_sheet and FSR_sheet
+  (DrawMidLine "C" AG_blcorner AG_trcorner AG_width)
+  (DrawMidLine "G" AG_blcorner AG_trcorner AG_width)
+  (DrawMidLine "CF" FSR_blcorner FSR_trcorner FSR_width)
+  (DrawMidLine "GF" FSR_blcorner FSR_trcorner FSR_width)
+					; Draw ruler for sheet on each layer
+  ;(Drawptrule "C" FSR_progress FSR_width FSR_blcorner)
+  ;(Drawptrule "G" FSR_progress FSR_width FSR_blcorner)
+  ;(Drawptrule "CF" FSR_progress FSR_width FSR_blcorner)
+  ;(Drawptrule "GF" FSR_progress FSR_width FSR_blcorner)
+					;Zoom in to show the sheets better
+  (if (tblsearch "block" "frame_block")
+    (command "-block" "frame_block" "y" AG_blcorner frame_block "")
+    (command "-block" "frame_block" AG_blcorner frame_block "")
+  )
+  (command "-insert" "frame_block" AG_blcorner 1 1 0)
+  
+  (setq zblcorner (mapcar '- AG_blcorner (list 50 50 0)))
+  (setq ztrcorner (mapcar '+ AG_trcorner (list 50 50 0)))
+  (command "zoom" "w" zblcorner ztrcorner)
+
+  (setvar "osmode" oldsnap)
+  (setvar "cmdecho" 1)
+  (princ)
+  
+
+);;end of defun c:Gsheet
+
+
+;;;Definition of function of Glayer, which can be implemented in command line.
+(defun Glayer	()
+  
+  ;;Definition of function of Glayer1, which is only effective in its parent space.
+  (defun Glayer1 (name color)
+    (if	(not (tblsearch "layer" name))
+      (command "layer" "N" name "C" color name "")
+    )
+  )  ;;end of defun Glayer1
+
+  (Glayer1 "Sheet-AG" 1)
+  (Glayer1 "Sheet-FSR" 3)
+  (Glayer1 "Sheet-SD" 4)
+  (Glayer1 "C" 1)
+  (Glayer1 "G" 40)
+  (Glayer1 "CF" 3)
+  (Glayer1 "GF" 5)
+  (Glayer1 "SD" 7)
+    
+);;end of defun c:Glayer
+
+;;;Definition of function of SelCurlayer, to select a layer as current layer
+(defun SelCurlayer (Curlayer)
+  (command "layer" "s" Curlayer "")
+)
+
+;;;Definition of function of Drawcutline, to draw cut line for sheets on layers required
+(defun Drawcutline (layername sheet_trcorner sheet_width)
+
+  (defun cutline (spoint)
+    (command "pline"
+	     spoint
+	     "w"
+	     0.5
+	     0.5
+	     (polar spoint (/ pi 2) 10)
+	     ""
+    );;polyline starting from spoint, 10mm long, vertical, 0.5mm thick
+    (ssadd (entlast) frame_block)
+    
+  );;end of defun cutline
+
+  (SelCurlayer layername)		;set current layer
+  (cutline (polar sheet_trcorner (/ pi 2) 10))
+					;draw the cutline at top right corner of the sheet
+  (cutline
+    (list (car sheet_trcorner)
+	  (- (cadr sheet_trcorner) (+ sheet_width 20))
+	  0
+    )					;draw the cutline at bottom right corner of the sheet
+  )
+);;end of defun Drawcutline
+
+(defun Drawcutline1 (layername sheet_trcorner sheet_width)
+
+  (defun cutline (spoint)
+    (command "pline"
+	     spoint
+	     "w"
+	     0.5
+	     0.5
+	     (polar spoint (/ pi 2) 20)
+	     ""
+    );;polyline starting from spoint, 10mm long, vertical, 0.5mm thick
+    (ssadd (entlast) frame_block)
+    
+  );;end of defun cutline
+
+  (SelCurlayer layername)		;set current layer
+  (cutline (polar sheet_trcorner (/ pi 2) -35))
+					;draw the cutline at top right corner of the sheet
+  (cutline
+    (list (car sheet_trcorner)
+	  (- (cadr sheet_trcorner) (+ sheet_width -15))
+	  0
+    )					;draw the cutline at bottom right corner of the sheet
+  )
+);;end of defun Drawcutline1
+
+(defun Drawcutline2 (layername sheet_trcorner sheet_width)
+
+  (defun cutline (spoint)
+    (command "pline"
+	     spoint
+	     "w"
+	     0.5
+	     0.5
+	     (polar spoint (/ pi 2) 20)
+	     ""
+    );;polyline starting from spoint, 10mm long, vertical, 0.5mm thick
+    (ssadd (entlast) frame_block)
+    
+  );;end of defun cutline
+
+  (SelCurlayer layername)		;set current layer
+  (cutline
+   (list (car sheet_trcorner)
+	  (- (cadr sheet_trcorner) (+(/ sheet_width 2) 10))
+	  0
+   )
+  )
+					;draw the cutline at midright corner of the sheet
+);;end of defun Drawcutline2
+
+;;;Definition of function of Drawmidline, to draw middle line for sheets on layers required
+(defun DrawMidLine (layername sheet_blcorner sheet_trcorner sheet_width)
+
+  (defun midline (spoint)
+    (command "pline"
+	     spoint
+	     "w"
+	     0.5
+	     0.5
+	     (polar spoint 0 5)
+	     ""
+    );polyline starting from spoint,5mm long,horiztonal,0.5mm thick
+    (ssadd (entlast) frame_block)
+    
+  );;end of defun midline
+
+  (SelCurlayer layername)
+  (midline
+    (list
+      (+ (car sheet_blcorner) 2)
+      (+ (cadr sheet_blcorner) (/ sheet_width 2))
+      0
+    );;mid-line at left side: spoint=(sheet_blcorner.x+2, sheet_blcorner.y+sheet_width/2,0)
+  )
+  (midline
+    (list
+      (- (car sheet_trcorner) 7)
+      (- (cadr sheet_trcorner) (/ sheet_width 2))
+      0
+    );;mid-line at right side: spoint=(sheet_trcorner.x-7, sheet_trcorner.y-sheet_width/2,0)
+  )
+)
+
+;;;Definition of Function Drawrule, to draw phototool rule on layers required
+(defun DrawPtRule (layername sheet_progress sheet_width
+			     sheet_blcorner /
+			     Ruler_len	    Ruler_step
+			     Dist_R2Sht	    Ruler_no
+			     VDist_R2txt    HDist_R2txt
+			     Rline_len	    Rline_spx
+			     Rline_spy	    Ruler_spx
+			     Rline_spy	    Half
+			    )
+
+  (defun Rline (spoint epoint)
+    
+    (command "pline" spoint "w" 0.1 0.1 epoint "")
+    (ssadd (entlast) frame_block)
+    
+  );;;end of Rline()
+
+  (defun Ruletext (txtsp txtang txt)
+
+    (command "text" txtsp txtang txt )
+    (ssadd (entlast) frame_block)
+
+  );;;end of Ruletext
+
+
+  (SelCurlayer layername)
+  (setq Ruler_step 100)
+  (setq Ruler_len 4)
+  (setq Dist_R2Sht (+ 10 (/ Ruler_len 2))) ;;Gap between rule and respective sheet, always FSR here
+
+;;Draw Horizontal phototool ruler
+  (setq Ruler_no (fix (/ sheet_progress 100)))
+  (setq VDist_R2txt 5)
+  (setq HDist_R2txt 5)
+  
+  (setq Rline_len (* Ruler_step Ruler_no))
+  (setq Rline_spx (+ (car sheet_blcorner) (/ (- sheet_progress Rline_len) 2.0)))
+  (setq Rline_spy (- (cadr sheet_blcorner) Dist_R2sht))
+  
+  (setq Ruler_spx Rline_spx)
+  (setq Ruler_spy (- Rline_spy (/ Ruler_len 2)))
+
+  (Rline (list Rline_spx Rline_spy 0) (list (+ Rline_spx Rline_len) Rline_spy 0))
+  
+  (while (>= Ruler_no 0)
+    (setq Ruler_spx (+ Rline_spx (* Ruler_no Ruler_step)))
+    (Rline (list Ruler_spx Ruler_spy 0)
+	   (list Ruler_spx (+ Ruler_spy Ruler_len) 0)
+    )
+    
+    (if	(= Ruler_no 0)
+      (setq HDist_R2txt 2)
+      (setq HDist_R2txt 5)
+    )
+
+    (Ruletext
+      (list (- Ruler_spx HDist_R2txt) (- Ruler_spy VDist_R2txt) 0)
+      0
+      (itoa (* Ruler_step Ruler_no))
+    )
+      
+    (setq Ruler_no (1- Ruler_no))
+  )
+
+;;;Draw vertical phototool ruler
+  (setq Ruler_no (fix (/ sheet_width Ruler_step)))
+  (setq Rline_len (* Ruler_step Ruler_no))
+  (setq Rline_spx (- (car sheet_blcorner) Dist_R2sht))
+  (setq Rline_spy (+ (cadr sheet_blcorner) (/ (- sheet_width Rline_len) 2.0)))
+
+  (setq Ruler_spx (+ Rline_spx (/ Ruler_len 2)))
+  (setq Ruler_spy Rline_spy)
+  (setq VDist_R2txt 5)
+  (setq HDist_R2txt 5)
+
+  (Rline (list Rline_spx Rline_spy 0) (list Rline_spx (+ Rline_spy (- (/ Rline_len 2) 40)) 0))
+  (Rline (list Rline_spx (+ Rline_spy (+ (/ Rline_len 2) 40)) 0) (list Rline_spx (+ Rline_spy Rline_len) 0))
+    
+  (setq Half (/ Ruler_no 2.0))
+
+  (while (>= Ruler_no 0)
+    
+    (setq Ruler_spy (+ Rline_spy (* Ruler_step Ruler_no)))
+    (if	(= Ruler_no 0)
+      (setq VDist_R2txt 2)
+      (setq VDist_R2txt 5)
+    )
+
+    (if	(/= Ruler_no half )
+      (progn
+
+	(Rline (list Ruler_spx Ruler_spy 0)
+	       (list (- Ruler_spx Ruler_len) Ruler_spy 0)
+	)
+
+	(Ruletext
+	  (list (- Ruler_spx HDist_R2txt) (- Ruler_spy VDist_R2txt) 0)
+	  90
+	  (itoa (* Ruler_step Ruler_no))
+	)
+      );;;end of progn
+     (progn
+	(Rline (list Ruler_spx (- Ruler_spy (/ Ruler_step 2)) 0)
+	       (list (- Ruler_spx Ruler_len) (- Ruler_spy (/ Ruler_step 2)) 0)
+	)
+	(Rline (list Ruler_spx (+ Ruler_spy (/ Ruler_step 2)) 0)
+	       (list (- Ruler_spx Ruler_len) (+ Ruler_spy (/ Ruler_step 2)) 0)
+	)
+	(Ruletext
+		 (list (- Ruler_spx HDist_R2txt) (+ Ruler_spy (- (/ Ruler_step 2) VDist_R2txt)) 0)
+		 90
+		 (itoa (fix (* Ruler_step (+ Ruler_no 0.5))))
+		 
+	)
+	(Ruletext
+		 (list (- Ruler_spx HDist_R2txt) (- Ruler_spy (+ (/ Ruler_step 2) VDist_R2txt)) 0)
+		 90
+		 (itoa (fix (* Ruler_step (- Ruler_no 0.5))))
+		 
+	)
+
+      );;;end of progn
+    );;;end of if
+    (setq Ruler_no (1- Ruler_no))
+  );;;end of while
+);;;end of Drawptrule()
+
+;;;Definition of Funtion MarkShtDim(), to mark the dimension of each sheet.
+
+(defun MarkShtDim (blcorner trcorner orient dist / sec_point)
+  (cond
+    ((= orient "H") (setq sec_point trcorner))
+    ((= orient "V") (setq sec_point blcorner))
+  )
+
+  (command "dimlinear"
+	   (list (car blcorner) (cadr trcorner) 0)
+	   sec_point
+	   orient
+	   dist
+	   
+  )
+  (ssadd (entlast) frame_block)
+)
+;;;end of MarkShtDim()
