@@ -1,0 +1,337 @@
+(setq Rstep 0.25)   ; the step of cell radius
+(setq Radmini 4.9)  ; the minimum radius of cells
+(setq RadVH 2.9)    ; the radius of ventilation of hole
+
+
+(defun c:SDCell	(/ plss plss_len plss_index plent snapold oldlayer cdia Sstr)
+
+  (setvar "cmdecho" 0)			;Save inital environment
+  (setq snapold (getvar "osmode"))
+  (setvar "osmode" 0)
+  (setq oldlayer (getvar "clayer"))
+
+  (initget 1 "D M")			;Promopt user to select function: to dimension them or modify them
+  (setq	Sstr (getkword
+	       "Dimension or Modify cell's diameters (D/M)"
+	     )
+  )
+  (setq cdia 1)
+  (if (= Sstr "D")			;Set current layer according to user's indent
+    (if	(= (tblsearch "layer" "SD_DIM") nil)
+      (command "layer" "N" "SD_DIM" "C"	7 "SD_DIM" "S" "SD_DIM"	"")
+      (command "layer" "S" "SD_DIM" "")
+    )
+    (progn
+      (while (or (/= (rem cdia rstep) 0) (< cdia radmini))
+      	(initget 4)
+      	(setq cdia (getreal "Please enter new Cell Radius(Minimum is 5mm):"))
+      ) 
+      (command "layer" "s" "SD" "")
+    )
+  )
+    
+  (prompt
+    "\nPlease select all the SD shapes\n"
+  )	  
+  (setq plss (ssget)) 	;get user's selection
+  (setq plss_len (sslength plss)); how many shapes
+  (setq plss_index 0)
+  (repeat plss_len	;one by one
+    (setq plent (entget (ssname plss plss_index))) ; get the ent from user's selection
+    (if (= (cdr (assoc 0 plent)) "LWPOLYLINE")     ; if it is a lwpolyline; yes: so 
+      (if (= Sstr "D")
+	(CellDim plent)
+	(progn
+	  (CellDia plent cdia)
+	  (command "erase" (ssname plss plss_index) "")
+	)
+      )
+    )
+    (setq plss_index (1+ plss_index))
+  )
+  (setq plss nil plent nil)
+  (setvar "cmdecho" 1)		
+  (setvar "osmode" snapold)
+  (setvar "clayer" oldlayer)
+  (princ)
+)
+
+(defun Celldim (pelm / circless cplm tangle mcplm)
+
+  (setq cplm (CellAnalysis pelm)) ;get arc list
+  (setq circless (ssadd))
+  (setq	tangle (angle (caar cplm) (car (last cplm))) ;Cal. t
+	tangle (if (>= tangle pi)
+		 (- tangle pi)
+		 tangle
+	       )
+  )
+  (foreach mcplm cplm
+    (if	(> (cadr mcplm) Radmini)
+      (progn
+	(command "circle" (car mcplm) (cadr mcplm))
+	(ssadd (entlast) circless)
+	(command "_Dimdiameter"
+		 (polar (car mcplm) 0 (cadr mcplm))
+		 (polar	(car mcplm)
+			(+ tangle (* 0.25 pi))
+			(+ (cadr mcplm) 10)
+		 )
+	)
+      )
+    )
+  )
+
+  (command "erase" circless "")
+  (setq circless nil)
+  (Princ)
+)
+
+(defun Celldia (pela newcelldia / cpla p1 p2 pointcell pointline sscell n mcpla celld m j ssline myline t1 br sd mcpla1 mcpla2 y0 yz)
+
+  (setq cpla (cellanalysis pela))
+  (setq p1 (car (nth 0 cpla)))
+  (setq p2 (car (nth 1 cpla)))
+  ;|(if (equal (car p1) (car p2) 0.001)
+    (setq cpla
+	   (vl-sort cpla
+		    (function
+		      (lambda (e1 e2) (< (cadr (car e1)) (cadr (car e2))))
+		    )
+	   )
+    )|;
+  (setq	cpla
+	 (vl-sort cpla
+		  (function (lambda (e1 e2) (< (caar e1) (caar e2))))
+	 )
+  )
+ ;)
+  (setq cangle (angle (caar cpla) (car (last cpla)))) ; Angle between finger and X axis
+  
+  (setq pointcell (list 0))
+  (setq pointline (list 0))
+
+  (setq sscell (ssadd))		; selection set sscell contains all circles, trimed by lines later
+  (setq n 0)
+  (while (< n (length cpla))
+    (setq mcpla (nth n cpla))
+    (if	(> (cadr mcpla) Radmini) 	;differ normal cells from venti hole, diamter of later is 3mm, former is 5-7mm
+      (setq celld NewCelldia)
+      (setq celld 3)
+    )
+    (command "circle" (car mcpla) celld)
+    (ssadd (entlast) sscell)
+    (if	(or (= n 0) (= n (1- (length cpla))))
+      (setq m 1)
+      (setq m 2)
+    )
+    (setq j 0)
+    (while (< j m)
+      (setq
+	pointcell (append pointcell
+			  (list (polar (car mcpla) (+ cangle (* pi 0.5)) celld))	;define and save points on arcs for Fillet command
+		  )
+      )
+      (setq
+	pointcell (append pointcell
+			  (list (polar (car mcpla) (+ cangle (* pi 1.5)) celld))
+		  )
+      )
+      (setq j (1+ j))
+    )
+    (setq n (1+ n))
+
+  )
+
+  (setq ssline (ssadd))
+  (setq n 0)
+  (while (< n (1- (length cpla)))
+    (setq mcpla1 (nth n cpla))
+    (setq mcpla2 (nth (1+ n) cpla))
+
+    (command "line" (car mcpla1) (car mcpla2) "")
+    (setq myline (entlast))
+    (command "offset"
+	     1
+	     myline
+	     (polar (car mcpla2) (+ cangle (* 0.5 pi)) 1)
+	     ""
+    )
+    (ssadd (entlast) ssline)
+    (command "offset"
+	     1
+	     myline
+	     (polar (car mcpla1) (+ cangle (* 1.5 pi)) 1)
+	     ""
+    )
+    (ssadd (entlast) ssline)
+    (command "erase" myline "")
+
+    (repeat 2
+      (setq pointline	; define and save points on lines for Fillet command
+	     (append
+	       pointline	;Define these points as mid point of each line.
+	       (list
+		 (polar
+		   (polar (car mcpla1)
+			  cangle
+			  (/ (distance (car mcpla1) (car mcpla2)) 2)
+		   )
+		   (+ cangle (* pi 0.5))
+		   1
+		 )
+	       )
+	     )
+      )
+      (setq pointline
+	     (append
+	       pointline
+	       (list
+		 (polar
+		   (polar (car mcpla1)
+			  cangle
+			  (/ (distance (car mcpla1) (car mcpla2)) 2)
+		   )
+		   (+ cangle (* pi 1.5))
+		   1
+		 )
+	       )
+	     )
+      )
+
+    )
+
+    (setq n (1+ n))
+  )
+
+  (setq y0 (cadr (car (nth 0 cpla))))	;(x0 y0) is center of first arc in the cpla list sorted
+  (setq x0 (caar (nth 0 cpla)))
+  (setq yz (cadr (car (last cpla))))	;(xz yz) is center of last arc in the cpla list sorted
+  (setq xz (caar (last cpla)))
+  (if (> y0 yz)		; define the top left point(tl) and bottom right point(br)
+    (progn
+      (setq tl (list (- x0 20) (+ y0 20)))
+      (setq br (list (+ xz 20) (- yz 20)))
+    )
+    (progn
+      (setq tl (list (- x0 20) (+ yz 20)))
+      (setq br (list (+ xz 20) (- y0 20)))
+    )
+  )
+ 
+  (command "zoom" "w" tl br)
+ 
+  (command "trim"
+	   sscell
+	   ssline
+	   ""
+	   "f"
+	   (car (nth 0 cpla))
+	   (car (last cpla))
+	   ""
+	   "f"
+	   (car (last cpla))
+	   (car (nth 0 cpla))
+	   ""
+	   ""
+  )
+  
+  (setq n 1)
+  (command "fillet" "r" 1)
+  (while (< n (length pointcell))
+    (command "fillet" (nth n pointcell) (nth n pointline))
+    (setq n (1+ n))
+  )
+  
+  (setq sd (ssget "C" tl br '((-4 . "<or") (0 . "line") (0 . "arc") (-4 . "or>"))))
+  (command "pedit" "m" sd "" "y" "join" 0.001 "")
+  (celldim (entget(entlast)))
+  (setq sd nil sscell nil ssline nil pointline nil pointcell nil cpla nil)
+  
+)
+
+
+(defun CellAnalysis (pel  /    pln  ptp	 pan  wpl  cpl	par  r1	  pt
+		     al	  gx   bj   np	 xc   gg   rr	cp   no	  cpl 
+		     mcpl
+		    )
+
+
+  (SetQ	pel (Member '(100 . "AcDbPolyline") pel) 
+	pln (Cdr (Assoc 90 pel))	
+	ptp (Cdr (Assoc 70 pel))	
+  )
+  (SetQ	pan 6				
+	wpl '()				
+	cpl '()				
+  )
+
+  (Repeat pln
+    (SetQ plp (Cdr (Nth pan pel))	
+	  par (Cdr (Nth (+ 3 pan) pel))	
+	  wpl (Cons (List plp par) wpl)	
+    )
+    (SetQ pan (+ 4 pan))		
+  )
+
+					
+  (SetQ	wpl (Cons (Last wpl) wpl)	
+	wpl (Reverse wpl)		
+	pn  0
+	rl  (Length wpl)
+  )
+
+  (If (Or (= 0 ptp) (= 128 ptp))	
+    (progn
+      (prompt "The shape is not closed, Please close it")
+      (exit)
+    )
+  )
+
+
+  (Repeat (1- rl)			;Analysis point by point
+    (SetQ al (Nth pn wpl)		;Extract point data
+	  pt (Car al)			;Extract point coordinates
+    )
+    (If	(And (/= 0.0 (Cadr al)) (Nth pn wpl)) ;if it is a arc
+      (Progn
+	(SetQ gx (Cadr al)		;Extract
+	      bj (* (ATAN (ABS gx)) 4)
+	      np (Car (Nth (1+ pn) wpl)) 
+	      xc (* 0.5 (Distance pt np)) 
+	      gg (* gx xc)		  
+	      rr (/ (+ (* xc xc) (* gg gg)) (* 2 gg))  ;caculate radius of cell
+	)				               ;end of setq
+	(SetQ cp (Polar pt (SetQ pa (Angle pt np)) xc) ;caculate center of cell
+	      cp (Polar cp (+ pa (* 0.5 Pi)) (- rr gg))
+	)
+	(setq rr (abs rr))
+	(if (> rr RadVH)				;Here should be (> rr 3), but radius calculated isn't exactly equal to 3, so put 2.9 here.
+	  (if (null cpl)
+	    (setq cpl (cons (list cp rr) cpl))
+	    (progn
+	      (setq no T)
+	      (foreach mcpl cpl
+		(if (equal cp (car mcpl) 0.001)
+		  (setq no nil)
+		)			; end of if equal
+	      )				;end of foreach
+	      (if no
+		(setq cpl (cons (list cp rr) cpl))
+	      )				;end of if no	     
+	    )				;end of progn foreach
+	  )				;end of if nil cpl
+	)
+      )					;end of progn
+    )					;end of if and
+    (SetQ pn (1+ pn))			;
+  )					;end of repeat
+  cpl
+)
+
+(defun *error* (msg)
+  (princ "error: ")
+  (princ msg)
+  (command-s)
+  (princ)
+)
